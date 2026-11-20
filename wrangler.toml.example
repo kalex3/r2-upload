@@ -1,0 +1,60 @@
+name = "r2-upload"
+main = "src/index.ts"
+compatibility_date = "2026-10-18"
+
+# Keep this worker off *.workers.dev. The only public door should be the
+# secret path on the domain that already serves the bucket.
+workers_dev = false
+preview_urls = false
+
+# That domain serves the R2 bucket on every path. A route claims a path for
+# this worker instead. Use the exact path, with no "*":
+# a wildcard would take those URLs away from the bucket.
+# Do not attach a Worker Custom Domain on this hostname either. Custom
+# domains take every path, and the bucket would stop being served.
+#
+# Uncomment and set both the route and UPLOAD_PATH to the same path.
+#
+# [[routes]]
+# pattern = "files.example.com/paste-a-long-random-path"
+# zone_name = "example.com"
+
+# Optional, if you want a trailing slash to open the page too.
+# [[routes]]
+# pattern = "files.example.com/paste-a-long-random-path/"
+# zone_name = "example.com"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "your-bucket"
+
+# Which worker owns which file. Create the namespace once:
+#   wrangler kv namespace create FILES
+[[kv_namespaces]]
+binding = "FILES"
+id = "paste-the-namespace-id"
+
+[vars]
+# This path is the access check. Share https://<domain><UPLOAD_PATH> only
+# with people who may upload. Generate one with: openssl rand -hex 24
+UPLOAD_PATH = "/paste-a-long-random-path"
+# Unique per worker. The file list on that worker only includes objects
+# this name created. Lowercase letters, numbers, and hyphens.
+WORKER_NAME = "admin"
+# Set to "true", deploy, open this worker's page, and use Claim existing files.
+# That moves any old .uploader records into KV, deletes them, and assigns every
+# file in the bucket which no worker owns yet, except CLAIM_EXCLUDE. Deploy
+# again with "false" when it is done. Claimed files count toward this worker's quota.
+CLAIM_UNOWNED = "false"
+# Directories claim leaves unowned. Each entry is a key prefix.
+# CLAIM_EXCLUDE = "assets/,docs/"
+# Per-worker cap in bytes. 1000000000 is 1 GB.
+QUOTA_BYTES = "10000000000"
+# Cap for everything in this bucket, in bytes. 10000000000 is 10 GB.
+ACCOUNT_QUOTA_BYTES = "10000000000"
+# Heading and the paragraph under it. Leave PAGE_DESCRIPTION empty to hide it.
+PAGE_TITLE = "R2 Uploader"
+PAGE_DESCRIPTION = ""
+# Hex characters in a random object name.
+RANDOM_NAME_LENGTH = "8"
+# PAGE_DESCRIPTION = "Paste an image and it uploads now, under a random name. Use Text to write or paste text. Leave the name empty and it is stored with no extension. A file you choose keeps the name below. If that name is already taken, choose another one. Rename your own files under My files. The zone upload limit applies (100 MB on Free and Pro)."
