@@ -126,9 +126,11 @@ export const PAGE = `<!doctype html>
   #created li {
     background: transparent;
     border: 0;
+    border-bottom: 1px solid var(--line);
     border-radius: 0;
-    padding: 0.35rem 0;
+    padding: 0.55rem 0;
   }
+  #created li:last-child { border-bottom: 0; }
   .name, a { overflow-wrap: anywhere; min-width: 0; }
   .name-input { flex: 1; min-width: 0; width: auto; margin: 0; padding: 0.4rem 0.55rem; }
   .meta { color: var(--muted); font-size: 0.875rem; }
