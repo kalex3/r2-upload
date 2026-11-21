@@ -35,12 +35,12 @@ curl -T photo.jpg \
   https://files.example.com/the-secret-path
 ```
 
-Use the secret path itself as the URL, with no extra slash or file name after it. `x-key` is the object name. Leave it off and the body is stored under a random name: an image extension when the content type has one, and no extension for `text/plain`. `RANDOM_NAME_LENGTH` is how many hex characters that name has. It defaults to 8, and the longest accepted value is 64. Percent-encode spaces and other reserved characters in `x-key` (`photo%20name.jpg`).
+Use the secret path itself as the URL, with no extra slash or file name after it. `x-key` is the object name. `x-keep-original` is `true` or `false`. Leave that header off and `KEEP_ORIGINAL_NAMES` decides. When the choice is true, `x-key` is stored as given. When it is false, the object gets a random name even if `x-key` is set. With no `x-key`, the name is random either way. A random name uses an image extension when the content type has one, and no extension for `text/plain`. The worker checks that name against the bucket and draws another, up to five times. If all five are taken, the upload fails with “Could not pick a name”. `RANDOM_NAME_LENGTH` is how many hex characters that name has. It defaults to 8, and the longest accepted value is 64. Percent-encode spaces and other reserved characters in `x-key` (`photo%20name.jpg`).
 
-`curl --data-binary @-` is a POST, and a POST with a body uploads. Leave the name off for a random text paste with no extension. Curl’s default type is stored as `text/plain`. `--data-binary @-` reads until the pipe closes, so `cat` waits until you press Ctrl-D:
+`curl -d @-` is a POST, and a POST with a body uploads. Leave the name off for a random text paste with no extension. Curl’s default type is stored as `text/plain`. `-d` removes newlines; `--data-binary @-` keeps them. Both read until the pipe closes, so `cat` waits until you press Ctrl-D:
 
 ```bash
-echo hello | curl --data-binary @- \
+echo hello | curl -d @- \
   https://files.example.com/the-secret-path
 
 cat | curl --data-binary @- \
@@ -48,9 +48,11 @@ cat | curl --data-binary @- \
   https://files.example.com/the-secret-path
 ```
 
+With `--proto-default https` in `.curlrc` or `.config/curlrc`, leave off the `https://`.
+
 Set `content-type` when the paste is not text, for example `image/jpeg`. The JSON response includes the public URL. A second upload of the same name returns 409. Saved objects use `cache-control: public, max-age=60`.
 
-On the page, pasting an image uploads it immediately under a random name. Text is the Text field. A file you choose keeps its name. Rename and delete are under **My files**.
+On the page, a pasted image or a chosen file stays in the list until you use its Upload button. The name is editable before that. A pasted image starts with a random name. **Keep original filenames** starts checked when `KEEP_ORIGINAL_NAMES` is `"true"`. A file you choose after that uses its own name while the box is checked, and a random name when it is not. The page sends that name, so the upload stores it. A name you send is checked once: if it is already in the bucket, the upload is refused. Rename and delete are under **My files**. Write text with the curl examples above.
 
 Zone upload limits apply before the Worker runs: 100 MB on Free and Pro, 200 MB on Business.
 

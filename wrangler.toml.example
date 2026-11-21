@@ -57,4 +57,7 @@ PAGE_TITLE = "R2 Uploader"
 PAGE_DESCRIPTION = ""
 # Hex characters in a random object name.
 RANDOM_NAME_LENGTH = "8"
-# PAGE_DESCRIPTION = "Paste an image and it uploads now, under a random name. Use Text to write or paste text. Leave the name empty and it is stored with no extension. A file you choose keeps the name below. If that name is already taken, choose another one. Rename your own files under My files. The zone upload limit applies (100 MB on Free and Pro)."
+# Default for the Keep original filenames checkbox, and for a curl upload
+# that omits x-keep-original. "true" uses x-key. "false" uses a random name.
+KEEP_ORIGINAL_NAMES = "true"
+# PAGE_DESCRIPTION = "Paste an image or choose a file, edit the name, then use its Upload button. If that name is already taken, choose another one. Your files are under My files. The zone upload limit applies (100 MB on Free and Pro)."

@@ -11,6 +11,7 @@ export interface Env {
   PAGE_TITLE?: string;
   PAGE_DESCRIPTION?: string;
   RANDOM_NAME_LENGTH?: string;
+  KEEP_ORIGINAL_NAMES?: string;
   FILES: KVNamespace;
 }
 
@@ -23,7 +24,7 @@ const MAX_RANDOM_NAME_LENGTH = 64;
 
 const DEFAULT_PAGE_TITLE = "Upload";
 const DEFAULT_PAGE_DESCRIPTION =
-  "Paste an image and it uploads now, under a random name. Use Text to write or paste text. Leave the name empty and it is stored with no extension. A file you choose keeps the name below. If that name is already taken, choose another one. Rename your own files under My files. The zone upload limit applies (100 MB on Free and Pro).";
+  "Paste an image or choose a file, edit the name, then use its Upload button. If that name is already taken, choose another one. Your files are under My files. The zone upload limit applies (100 MB on Free and Pro).";
 
 const PLACEHOLDER_PATH = "/paste-a-long-random-path";
 const MAX_BYTES = 5 * 1024 * 1024 * 1024;
@@ -120,7 +121,9 @@ async function probe(request: Request, env: Env, secret: string): Promise<Respon
 }
 
 async function upload(request: Request, env: Env, secret: string): Promise<Response> {
-  const named = request.headers.get("x-key") !== null;
+  const keep = keepOriginal(request, env);
+  if (keep instanceof Response) return keep;
+  const named = keep && request.headers.get("x-key") !== null;
   const key = named
     ? objectKey(request.headers.get("x-key"), secret)
     : await autoKey(request, env, secret);
@@ -156,12 +159,22 @@ async function upload(request: Request, env: Env, secret: string): Promise<Respo
 
   try {
     const object = await env.BUCKET.put(key, body, {
+      onlyIf: { etagDoesNotMatch: "*" },
       httpMetadata: {
         contentType: contentType(request),
         cacheControl: "public, max-age=60",
       },
     });
-    if (!object) return text("Upload failed", 500);
+    if (!object) {
+      try {
+        const existing = await env.BUCKET.head(key);
+        if (existing) return conflict(request, env, existing);
+      } catch (err) {
+        console.error(err);
+        return text("Could not check the name", 500);
+      }
+      return text("Upload failed", 500);
+    }
     try {
       await recordCreated(env, object);
     } catch (err) {
@@ -198,6 +211,15 @@ async function autoKey(request: Request, env: Env, secret: string): Promise<stri
     return text("Could not pick a name", 500);
   }
   return text("Could not pick a name", 409);
+}
+
+function keepOriginal(request: Request, env: Env): boolean | Response {
+  const header = request.headers.get("x-keep-original");
+  if (header === null) return env.KEEP_ORIGINAL_NAMES !== "false";
+  const value = header.trim().toLowerCase();
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return text("Bad x-keep-original", 400);
 }
 
 function folderPrefix(header: string | null): string | Response {
@@ -523,6 +545,8 @@ async function listCreated(request: Request, env: Env): Promise<Response> {
 function renderPage(env: Env): string {
   const config = JSON.stringify({
     claim: env.CLAIM_UNOWNED === "true",
+    keepOriginal: env.KEEP_ORIGINAL_NAMES !== "false",
+    nameLength: randomNameLength(env),
   }).replaceAll("<", "\\u003c");
   const title = escapeHtml(pageText(env.PAGE_TITLE, DEFAULT_PAGE_TITLE));
   const description = escapeHtml(pageText(env.PAGE_DESCRIPTION, DEFAULT_PAGE_DESCRIPTION));

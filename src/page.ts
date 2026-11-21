@@ -98,6 +98,16 @@ export const PAGE = `<!doctype html>
   textarea { min-height: 9rem; resize: vertical; display: block; margin: 0.35rem 0 0.75rem; }
   input::placeholder, textarea::placeholder { color: var(--muted); }
   #prefix { margin-bottom: 1rem; }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    width: max-content;
+    max-width: 100%;
+    margin-bottom: 1rem;
+    cursor: pointer;
+  }
+  .check input { width: 1.05rem; height: 1.05rem; margin: 0; accent-color: var(--accent); }
   .drop {
     border: 1px dashed var(--line);
     background: var(--paper);
@@ -120,18 +130,20 @@ export const PAGE = `<!doctype html>
   }
   .row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
   .row > a { flex: 1; }
+  .row > .size, .row > button { flex: none; }
   .file { gap: 0.65rem; }
-  .file > .size, .file > button { flex: none; }
   .file > .size { width: 9.5ch; text-align: right; }
   #created li {
     background: transparent;
     border: 0;
     border-bottom: 1px solid var(--line);
     border-radius: 0;
-    padding: 0.55rem 0;
+    margin: 0;
+    padding: 0.7rem 0;
   }
   #created li:last-child { border-bottom: 0; }
   .name, a { overflow-wrap: anywhere; min-width: 0; }
+  .name { flex: 1; }
   .name-input { flex: 1; min-width: 0; width: auto; margin: 0; padding: 0.4rem 0.55rem; }
   .meta { color: var(--muted); font-size: 0.875rem; }
   .size { white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -164,11 +176,34 @@ export const PAGE = `<!doctype html>
     box-shadow: none;
     cursor: not-allowed;
   }
-  .tools { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1rem; }
-  #text-panel { margin-bottom: 1rem; }
-  #text-name { margin-bottom: 0.75rem; }
-  #show, #claim { margin-bottom: 1rem; }
-  #claim { margin-left: 0.5rem; }
+  #files-menu { margin-top: 1.5rem; }
+  #files-menu summary {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    width: max-content;
+    max-width: 100%;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    border-radius: 12px;
+    padding: 0.55rem 0.9rem;
+    font-weight: 700;
+    letter-spacing: .0892857143em;
+    cursor: pointer;
+    list-style: none;
+  }
+  #files-menu summary::-webkit-details-marker { display: none; }
+  #files-menu summary::after {
+    content: "";
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: translateY(-0.15rem) rotate(45deg);
+  }
+  #files-menu[open] summary::after { transform: translateY(0.1rem) rotate(225deg); }
+  #files-menu summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #claim { margin: 0.75rem 0; }
   .choices { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.55rem; }
   .choices .no {
     color: var(--ink);
@@ -207,62 +242,58 @@ export const PAGE = `<!doctype html>
   __LEAD__
   <label for="prefix">Folder <span class="meta">(optional)</span></label>
   <input id="prefix" name="folder" type="text" placeholder="photos/2026…" autocomplete="off" spellcheck="false">
+  <label class="check" for="keep-names"><input id="keep-names" type="checkbox">Keep original filenames</label>
   <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose files">Drop files, click to choose, or paste an image</div>
   <input id="files" type="file" multiple hidden>
-  <div class="tools">
-    <button class="secondary" id="text-open" type="button" aria-expanded="false" aria-controls="text-panel">Write Text</button>
-  </div>
-  <div id="text-panel" hidden>
-    <label for="text-body">Text</label>
-    <textarea id="text-body" name="text" placeholder="Write or paste text…" spellcheck="true"></textarea>
-    <label for="text-name">Name <span class="meta">(optional)</span></label>
-    <input id="text-name" name="filename" type="text" placeholder="Random name if empty…" autocomplete="off" spellcheck="false">
-    <button class="upload" id="text-go" type="button">Upload Text</button>
-    <div id="text-status" class="status meta" role="status" aria-live="polite"></div>
-  </div>
   <ul id="list"></ul>
-  <button class="upload" id="go" type="button">Upload</button>
-  <button class="secondary" id="show" type="button" aria-expanded="false" aria-controls="created">My Files</button>
-  <button class="secondary" id="claim" type="button" hidden>Claim Existing Files</button>
-  <ul id="created" hidden aria-live="polite"></ul>
+  <details id="files-menu">
+    <summary>My files</summary>
+    <button class="secondary" id="claim" type="button" hidden>Claim Existing Files</button>
+    <ul id="created" aria-live="polite"></ul>
+  </details>
 </main>
 <script>
 const CONFIG = __CONFIG__;
 const drop = document.querySelector("#drop");
 const input = document.querySelector("#files");
 const list = document.querySelector("#list");
-const go = document.querySelector("#go");
 const prefix = document.querySelector("#prefix");
-const show = document.querySelector("#show");
+const keepNames = document.querySelector("#keep-names");
+const filesMenu = document.querySelector("#files-menu");
 const claim = document.querySelector("#claim");
 const created = document.querySelector("#created");
-const textOpen = document.querySelector("#text-open");
-const textPanel = document.querySelector("#text-panel");
-const textBody = document.querySelector("#text-body");
-const textName = document.querySelector("#text-name");
-const textGo = document.querySelector("#text-go");
-const textStatus = document.querySelector("#text-status");
 let items = [];
-let uploading = false;
 let filesOpen = false;
 let filesRequest = 0;
 
 if (CONFIG.claim) claim.hidden = false;
-show.addEventListener("click", showCreated);
+keepNames.checked = CONFIG.keepOriginal !== false;
 claim.addEventListener("click", claimExisting);
-textOpen.addEventListener("click", toggleText);
-textGo.addEventListener("click", uploadText);
+filesMenu.addEventListener("toggle", () => {
+  if (filesMenu.open === filesOpen) return;
+  if (!filesMenu.open) {
+    filesRequest++;
+    filesOpen = false;
+    const url = new URL(location.href);
+    url.hash = "";
+    history.replaceState(null, "", url);
+    return;
+  }
+  loadFiles();
+});
 
 window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => e.preventDefault());
 window.addEventListener("paste", onPaste);
 window.addEventListener("beforeunload", (e) => {
-  if (!textBody.value.trim() && !uploading && !items.some(isPending)) return;
+  if (!items.some((item) => !item.done && !item.skipped)) return;
   e.preventDefault();
   e.returnValue = "";
 });
-textBody.addEventListener("input", () => textBody.removeAttribute("aria-invalid"));
-if (location.hash === "#files") showCreated();
+if (location.hash === "#files") {
+  setFilesOpen(true);
+  loadFiles();
+}
 drop.addEventListener("click", () => input.click());
 drop.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") {
@@ -277,7 +308,6 @@ drop.addEventListener("drop", (e) => {
   addFiles(e.dataTransfer.files);
 });
 input.addEventListener("change", () => addFiles(input.files));
-go.addEventListener("click", uploadAll);
 
 function onPaste(e) {
   const target = e.target;
@@ -287,47 +317,8 @@ function onPaste(e) {
   const images = pastedImages(data);
   if (!images.length) return;
   e.preventDefault();
-  for (const file of images) uploadAuto(file);
-}
-
-function toggleText() {
-  const open = textPanel.hidden;
-  textPanel.hidden = !open;
-  textOpen.setAttribute("aria-expanded", open ? "true" : "false");
-  if (open) textBody.focus();
-}
-
-async function uploadText() {
-  const text = textBody.value;
-  if (!text) {
-    textStatus.className = "status err";
-    textStatus.textContent = "Write some text first.";
-    textBody.setAttribute("aria-invalid", "true");
-    textBody.focus();
-    return;
-  }
-  const name = textName.value.trim();
-  const file = new File([text], name || "text", { type: "text/plain" });
-  textBody.removeAttribute("aria-invalid");
-  textStatus.className = "status meta";
-  textStatus.textContent = "Uploading…";
-  textGo.disabled = true;
-  try {
-    const item = name ? addItem(file, false) : await uploadAuto(file);
-    if (name) {
-      item.nameInput.value = name;
-      await uploadNamed(item);
-    }
-    if (!item.done) {
-      textStatus.textContent = "";
-      return;
-    }
-    textBody.value = "";
-    textName.value = "";
-    textStatus.textContent = "";
-  } finally {
-    textGo.disabled = false;
-  }
+  for (const file of images) addItem(file, true);
+  refreshButton();
 }
 
 function pastedImages(data) {
@@ -374,32 +365,28 @@ async function addFiles(fileList) {
   refreshButton();
 }
 
-function addItem(file, auto) {
+function addItem(file, random) {
   const li = document.createElement("li");
   const row = document.createElement("div");
   row.className = "row";
-  let nameInput = null;
-  let nameEl = null;
-  if (auto) {
-    nameEl = document.createElement("span");
-    nameEl.className = "name";
-    nameEl.textContent = file.type.indexOf("image/") === 0 ? "Pasted image" : "Text";
-    row.append(nameEl);
-  } else {
-    nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.className = "name-input";
-    nameInput.value = baseName(file.name);
-    nameInput.spellcheck = false;
-    nameInput.name = "filename";
-    nameInput.autocomplete = "off";
-    nameInput.setAttribute("aria-label", "File name");
-    row.append(nameInput);
-  }
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.className = "name-input";
+  const kept = baseName(file.name);
+  nameInput.value = random || !keepNames.checked || !kept ? randomFileName(file) : kept;
+  nameInput.spellcheck = false;
+  nameInput.name = "filename";
+  nameInput.autocomplete = "off";
+  nameInput.setAttribute("aria-label", "File name");
+  row.append(nameInput);
   const size = document.createElement("span");
   size.className = "meta size";
   size.textContent = formatBytes(file.size);
-  row.append(size);
+  const uploadBtn = document.createElement("button");
+  uploadBtn.type = "button";
+  uploadBtn.className = "upload";
+  uploadBtn.textContent = "Upload";
+  row.append(size, uploadBtn);
   const status = document.createElement("div");
   status.className = "status meta";
   status.setAttribute("role", "status");
@@ -415,13 +402,16 @@ function addItem(file, auto) {
     status: status,
     fill: fill,
     nameInput: nameInput,
-    nameEl: nameEl,
-    auto: auto,
+    uploadBtn: uploadBtn,
     done: false,
     conflict: false,
     skipped: false,
     busy: false,
   };
+  uploadBtn.addEventListener("click", () => {
+    if (item.busy || item.done || item.skipped || item.conflict) return;
+    uploadNamed(item);
+  });
   if (nameInput) nameInput.addEventListener("input", () => resetItem(item));
   items.push(item);
   return item;
@@ -438,23 +428,11 @@ function resetItem(item) {
 }
 
 function refreshButton() {
-  go.disabled = uploading;
-}
-
-function isPending(item) {
-  return !item.auto && !item.done && !item.conflict && !item.skipped && !item.busy;
-}
-
-async function uploadAll() {
-  uploading = true;
-  prefix.disabled = true;
-  refreshButton();
   for (const item of items) {
-    if (isPending(item)) await uploadNamed(item);
+    item.uploadBtn.hidden = item.done || item.skipped || item.conflict;
+    item.uploadBtn.disabled = item.busy;
+    if (item.nameInput) item.nameInput.disabled = item.busy;
   }
-  uploading = false;
-  prefix.disabled = false;
-  refreshButton();
 }
 
 async function uploadNamed(item) {
@@ -525,26 +503,65 @@ function showConflict(item, info) {
   refreshButton();
 }
 
-async function uploadAuto(file) {
-  const item = addItem(file, true);
-  refreshButton();
-  try {
-    if (prefix.value.trim()) joinKey(prefix.value, "file");
-  } catch (err) {
-    item.status.className = "status err";
-    item.status.textContent = err.message;
-    return item;
+function randomFileName(file) {
+  const length = CONFIG.nameLength || 8;
+  return randomId(length) + nameExtension(file);
+}
+
+function randomId(length) {
+  const bytes = new Uint8Array(Math.ceil(length / 2));
+  crypto.getRandomValues(bytes);
+  let hex = "";
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, "0");
+  return hex.slice(0, length);
+}
+
+function nameExtension(file) {
+  const fromMime = extensionFor(String(file.type || "").toLowerCase());
+  if (fromMime) return fromMime;
+  const base = baseName(file.name).toLowerCase();
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return "";
+  const ext = base.slice(dot);
+  if (ext.length < 2 || ext.length > 9) return "";
+  for (let i = 1; i < ext.length; i++) {
+    const c = ext.charCodeAt(i);
+    if (!((c >= 48 && c <= 57) || (c >= 97 && c <= 122))) return "";
   }
-  item.status.textContent = "Uploading…";
-  try {
-    const result = await put(file, null);
-    item.nameEl.textContent = result.key;
-    finish(item, result);
-  } catch (err) {
-    item.status.className = "status err";
-    item.status.textContent = err.message || "Upload failed. Try again.";
+  return ext;
+}
+
+function extensionFor(mime) {
+  if (!mime || mime.indexOf("text/") === 0) return "";
+  const known = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/apng": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/avif": "avif",
+    "image/bmp": "bmp",
+    "image/x-ms-bmp": "bmp",
+    "image/svg+xml": "svg",
+    "image/tiff": "tif",
+    "image/heic": "heic",
+    "image/heif": "heif",
+    "image/x-icon": "ico",
+    "image/vnd.microsoft.icon": "ico",
+  };
+  if (known[mime]) return "." + known[mime];
+  if (mime === "application/octet-stream") return "";
+  const slash = mime.indexOf("/");
+  if (slash < 0) return "";
+  let subtype = mime.slice(slash + 1).split("+")[0];
+  if (subtype.indexOf("x-") === 0) subtype = subtype.slice(2);
+  if (subtype.length < 1 || subtype.length > 8) return "";
+  for (let i = 0; i < subtype.length; i++) {
+    const c = subtype.charCodeAt(i);
+    if (!((c >= 48 && c <= 57) || (c >= 97 && c <= 122))) return "";
   }
-  return item;
+  return "." + subtype;
 }
 
 function finish(item, result) {
@@ -594,6 +611,7 @@ async function request(method, key, body) {
     if (folder) headers["x-prefix"] = encodeURIComponent(folder);
   } else {
     headers["x-key"] = encodeURIComponent(key);
+    headers["x-keep-original"] = "true";
   }
   if (body && !body.type) headers["content-type"] = "application/octet-stream";
   let response;
@@ -616,22 +634,15 @@ async function request(method, key, body) {
 
 function setFilesOpen(open) {
   filesOpen = open;
-  created.hidden = !open;
-  show.setAttribute("aria-expanded", open ? "true" : "false");
+  if (filesMenu.open !== open) filesMenu.open = open;
   const url = new URL(location.href);
   url.hash = open ? "files" : "";
   history.replaceState(null, "", url);
 }
 
-async function showCreated() {
-  if (filesOpen) {
-    filesRequest++;
-    setFilesOpen(false);
-    return;
-  }
+async function loadFiles() {
   const request = ++filesRequest;
   setFilesOpen(true);
-  created.textContent = "Loading…";
   try {
     const response = await fetch(location.pathname, { headers: { "x-list": "1" } });
     const raw = await response.text();
@@ -641,7 +652,7 @@ async function showCreated() {
     if (!response.ok || !data) throw new Error(raw || "Could not list files");
     created.textContent = "";
     if (!data.files.length) {
-      created.textContent = "No files yet.";
+      created.textContent = "No files";
       return;
     }
     for (const file of data.files) {
@@ -673,7 +684,7 @@ async function showCreated() {
     }
   } catch (err) {
     if (request !== filesRequest) return;
-    created.textContent = err.message || "Could not list files";
+    created.textContent = "Failed to load";
   }
 }
 
@@ -771,7 +782,7 @@ async function deleteCreated(li) {
     return;
   }
   li.remove();
-  if (!created.querySelector("li")) created.textContent = "No files yet.";
+  if (!created.querySelector("li")) created.textContent = "No files";
 }
 
 async function claimExisting() {
