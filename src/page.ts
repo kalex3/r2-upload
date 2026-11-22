@@ -108,6 +108,7 @@ export const PAGE = `<!doctype html>
     cursor: pointer;
   }
   .check input { width: 1.05rem; height: 1.05rem; margin: 0; accent-color: var(--accent); }
+  .check:has(input:disabled) { color: var(--muted); cursor: default; }
   .drop {
     border: 1px dashed var(--line);
     background: var(--paper);
@@ -243,6 +244,7 @@ export const PAGE = `<!doctype html>
   <label for="prefix">Folder <span class="meta">(optional)</span></label>
   <input id="prefix" name="folder" type="text" placeholder="photos/2026…" autocomplete="off" spellcheck="false">
   <label class="check" for="keep-names"><input id="keep-names" type="checkbox">Keep original filenames</label>
+  <label class="check" for="keep-extension"><input id="keep-extension" type="checkbox">Keep extension</label>
   <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose files">Drop files, click to choose, or paste an image</div>
   <input id="files" type="file" multiple hidden>
   <ul id="list"></ul>
@@ -259,6 +261,7 @@ const input = document.querySelector("#files");
 const list = document.querySelector("#list");
 const prefix = document.querySelector("#prefix");
 const keepNames = document.querySelector("#keep-names");
+const keepExtension = document.querySelector("#keep-extension");
 const filesMenu = document.querySelector("#files-menu");
 const claim = document.querySelector("#claim");
 const created = document.querySelector("#created");
@@ -267,7 +270,36 @@ let filesOpen = false;
 let filesRequest = 0;
 
 if (CONFIG.claim) claim.hidden = false;
-keepNames.checked = CONFIG.keepOriginal !== false;
+const savedSettings = readSettings();
+keepNames.checked = typeof savedSettings.keepOriginal === "boolean" ? savedSettings.keepOriginal : CONFIG.keepOriginal !== false;
+keepExtension.checked = typeof savedSettings.keepExtension === "boolean" ? savedSettings.keepExtension : CONFIG.keepExtension === true;
+function syncExtension() {
+  keepExtension.disabled = keepNames.checked;
+}
+function readSettings() {
+  try {
+    const data = JSON.parse(localStorage.getItem("r2-upload-settings:" + location.pathname) || "");
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+function saveSettings() {
+  try {
+    localStorage.setItem("r2-upload-settings:" + location.pathname, JSON.stringify({
+      keepOriginal: keepNames.checked,
+      keepExtension: keepExtension.checked,
+    }));
+  } catch {
+    return;
+  }
+}
+syncExtension();
+keepNames.addEventListener("change", () => {
+  syncExtension();
+  saveSettings();
+});
+keepExtension.addEventListener("change", saveSettings);
 claim.addEventListener("click", claimExisting);
 filesMenu.addEventListener("toggle", () => {
   if (filesMenu.open === filesOpen) return;
@@ -505,15 +537,22 @@ function showConflict(item, info) {
 
 function randomFileName(file) {
   const length = CONFIG.nameLength || 8;
-  return randomId(length) + nameExtension(file);
+  return randomId(length) + (keepExtension.checked ? nameExtension(file) : "");
 }
 
 function randomId(length) {
-  const bytes = new Uint8Array(Math.ceil(length / 2));
-  crypto.getRandomValues(bytes);
-  let hex = "";
-  for (const byte of bytes) hex += byte.toString(16).padStart(2, "0");
-  return hex.slice(0, length);
+  const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  let name = "";
+  while (name.length < length) {
+    const bytes = new Uint8Array(length - name.length);
+    crypto.getRandomValues(bytes);
+    for (const byte of bytes) {
+      if (byte >= 248) continue;
+      name += alphabet[byte % 62];
+      if (name.length === length) break;
+    }
+  }
+  return name;
 }
 
 function nameExtension(file) {

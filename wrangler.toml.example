@@ -55,9 +55,12 @@ ACCOUNT_QUOTA_BYTES = "10000000000"
 # Heading and the paragraph under it. Leave PAGE_DESCRIPTION empty to hide it.
 PAGE_TITLE = "R2 Uploader"
 PAGE_DESCRIPTION = ""
-# Hex characters in a random object name.
+# Characters in a random object name. The alphabet is 0-9, A-Z, and a-z.
 RANDOM_NAME_LENGTH = "8"
 # Default for the Keep original filenames checkbox, and for a curl upload
 # that omits x-keep-original. "true" uses x-key. "false" uses a random name.
 KEEP_ORIGINAL_NAMES = "true"
+# Default for the Keep extension checkbox, and for a random curl name that
+# omits x-keep-extension. "true" adds an extension. "false" leaves it off.
+KEEP_EXTENSION = "false"
 # PAGE_DESCRIPTION = "Paste an image or choose a file, edit the name, then use its Upload button. If that name is already taken, choose another one. Your files are under My files. The zone upload limit applies (100 MB on Free and Pro)."

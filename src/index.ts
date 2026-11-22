@@ -12,6 +12,7 @@ export interface Env {
   PAGE_DESCRIPTION?: string;
   RANDOM_NAME_LENGTH?: string;
   KEEP_ORIGINAL_NAMES?: string;
+  KEEP_EXTENSION?: string;
   FILES: KVNamespace;
 }
 
@@ -198,7 +199,9 @@ async function autoKey(request: Request, env: Env, secret: string): Promise<stri
   const secretKey = secret.slice(1);
   if (prefix === secretKey || prefix.startsWith(`${secretKey}/`)) return text("Bad folder", 400);
 
-  const ext = extensionFor(contentType(request));
+  const keepExt = keepExtension(request, env);
+  if (keepExt instanceof Response) return keepExt;
+  const ext = keepExt ? extensionFor(contentType(request)) : "";
   try {
     for (let attempt = 0; attempt < 5; attempt++) {
       const base = randomId(randomNameLength(env)) + ext;
@@ -211,6 +214,15 @@ async function autoKey(request: Request, env: Env, secret: string): Promise<stri
     return text("Could not pick a name", 500);
   }
   return text("Could not pick a name", 409);
+}
+
+function keepExtension(request: Request, env: Env): boolean | Response {
+  const header = request.headers.get("x-keep-extension");
+  if (header === null) return env.KEEP_EXTENSION === "true";
+  const value = header.trim().toLowerCase();
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return text("Bad x-keep-extension", 400);
 }
 
 function keepOriginal(request: Request, env: Env): boolean | Response {
@@ -259,10 +271,21 @@ function randomNameLength(env: Env): number {
   return parsed;
 }
 
+const NAME_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
 function randomId(length: number): string {
-  const bytes = new Uint8Array(Math.ceil(length / 2));
-  crypto.getRandomValues(bytes);
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, length);
+  let name = "";
+  while (name.length < length) {
+    const bytes = new Uint8Array(length - name.length);
+    crypto.getRandomValues(bytes);
+    for (const byte of bytes) {
+      // 248 is the largest multiple of 62 below 256, so the remainder is uniform.
+      if (byte >= 248) continue;
+      name += NAME_ALPHABET[byte % 62];
+      if (name.length === length) break;
+    }
+  }
+  return name;
 }
 
 const EXTENSIONS: Record<string, string> = {
@@ -546,6 +569,7 @@ function renderPage(env: Env): string {
   const config = JSON.stringify({
     claim: env.CLAIM_UNOWNED === "true",
     keepOriginal: env.KEEP_ORIGINAL_NAMES !== "false",
+    keepExtension: env.KEEP_EXTENSION === "true",
     nameLength: randomNameLength(env),
   }).replaceAll("<", "\\u003c");
   const title = escapeHtml(pageText(env.PAGE_TITLE, DEFAULT_PAGE_TITLE));
