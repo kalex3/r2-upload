@@ -1,8 +1,8 @@
-# r2-upload
+# r2up
 
 A single Cloudflare Worker that serves an upload page on one secret path and writes files into the R2 bucket that this domain already serves.
 
-Anyone who has the URL can upload. There is no other login.
+Anyone who has the URL can upload. Set `UPLOAD_TOKEN` to require a token as well. The page asks for it and keeps a login cookie for 30 days. curl sends `Authorization: Bearer` on each request. Log out clears the cookie in this browser. Changing the secret signs everyone out. Leave the secret unset and the path stays the only check.
 
 ## Setup
 
@@ -13,6 +13,7 @@ Anyone who has the URL can upload. There is no other login.
    - Set `UPLOAD_PATH` to `/` plus that path.
    - Uncomment `[[routes]]` and use the same host and path. Add the trailing-slash route only if you want both.
    - Create the ownership namespace with `wrangler kv namespace create FILES` and set `id` under `[[kv_namespaces]]` to the id it prints.
+   - To require a token as well as the path, generate one with `openssl rand -hex 32` and store it with `npx wrangler secret put UPLOAD_TOKEN`. Do not put the token in `wrangler.toml`. For `npm run dev`, put `UPLOAD_TOKEN=...` in `.dev.vars`.
 4. `npx wrangler login`, then `npm run deploy`
 5. Open `https://<your-domain>/<the-path>`
 
@@ -35,7 +36,7 @@ curl -T photo.jpg \
   https://files.example.com/the-secret-path
 ```
 
-Use the secret path itself as the URL, with no extra slash or file name after it. `x-key` is the object name. `x-keep-original` is `true` or `false`. Leave that header off and `KEEP_ORIGINAL_NAMES` decides. When the choice is true, `x-key` is stored as given. When it is false, the object gets a random name even if `x-key` is set. With no `x-key`, the name is random either way. A random name has no extension unless `KEEP_EXTENSION` is `"true"` or the request sends `x-keep-extension: true`. Then an image gets an extension from its content type, and `text/plain` still has none. The worker checks that name against the bucket and draws another, up to five times. If all five are taken, the upload fails with “Could not pick a name”. `RANDOM_NAME_LENGTH` is how many characters that name has. The characters are digits and both letter cases. It defaults to 8, and the longest accepted value is 64. Percent-encode spaces and other reserved characters in `x-key` (`photo%20name.jpg`).
+Use the secret path itself as the URL, with no extra slash or file name after it. When `UPLOAD_TOKEN` is set, add `-H "authorization: Bearer $UPLOAD_TOKEN"` to each request. A wrong path is still 404. A wrong or missing token is 401. `x-key` is the object name. `x-keep-original` is `true` or `false`. Leave that header off and `KEEP_ORIGINAL_NAMES` decides. When the choice is true, `x-key` is stored as given. When it is false, the object gets a random name even if `x-key` is set. With no `x-key`, the name is random either way. A random name has no extension unless `KEEP_EXTENSION` is `"true"` or the request sends `x-keep-extension: true`. Then an image gets an extension from its content type, and `text/plain` still has none. The worker checks that name against the bucket and draws another, up to five times. If all five are taken, the upload fails with “Could not pick a name”. `RANDOM_NAME_LENGTH` is how many characters that name has. The characters are digits and both letter cases. It defaults to 8, and the longest accepted value is 64. Percent-encode spaces and other reserved characters in `x-key` (`photo%20name.jpg`).
 
 `curl -d @-` is a POST, and a POST with a body uploads. Leave the name off for a random text paste with no extension. Curl’s default type is stored as `text/plain`. `-d` removes newlines; `--data-binary @-` keeps them. Both read until the pipe closes, so `cat` waits until you press Ctrl-D:
 

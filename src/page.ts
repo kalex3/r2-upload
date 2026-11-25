@@ -83,10 +83,15 @@ export const PAGE = `<!doctype html>
   }
   .skip:focus-visible { transform: none; }
   main { max-width: 832px; margin: 0 auto; padding: 1em; width: 100%; }
-  h1 { font-size: 2.25rem; line-height: 2.75rem; letter-spacing: 0; margin: 0 0 0.4rem; text-wrap: balance; }
+  h1 { font-size: 2.25rem; line-height: 2.75rem; letter-spacing: 0; margin: 0; text-wrap: balance; }
   .lead { margin: 0 0 1.5rem; white-space: pre-wrap; }
   label { display: block; margin-bottom: 0.35rem; }
-  input[type="text"], textarea {
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0 0 0.4rem; }
+  .top h1 { margin: 0; }
+  #logout { color: var(--link); }
+  #login { margin-top: 1.5rem; }
+  #login button { margin-top: 0.75rem; }
+  input[type="text"], input[type="password"], textarea {
     width: 100%;
     padding: 0.65rem 0.75rem;
     border: 1px solid var(--line);
@@ -239,7 +244,17 @@ export const PAGE = `<!doctype html>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <main id="main">
-  <h1>__TITLE__</h1>
+  <div class="top">
+    <h1>__TITLE__</h1>
+    <button class="quiet" id="logout" type="button"__LOGOUT_HIDDEN__>Log out</button>
+  </div>
+  <form id="login"__LOGIN_HIDDEN__>
+    <label for="token">Token</label>
+    <input id="token" name="token" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required>
+    <p class="err" id="login-err" role="alert" hidden></p>
+    <button class="upload" type="submit">Log in</button>
+  </form>
+  <div id="app"__APP_HIDDEN__>
   __LEAD__
   <label for="prefix">Folder <span class="meta">(optional)</span></label>
   <input id="prefix" name="folder" type="text" placeholder="photos/2026…" autocomplete="off" spellcheck="false">
@@ -253,6 +268,7 @@ export const PAGE = `<!doctype html>
     <button class="secondary" id="claim" type="button" hidden>Claim Existing Files</button>
     <ul id="created" aria-live="polite"></ul>
   </details>
+  </div>
 </main>
 <script>
 const CONFIG = __CONFIG__;
@@ -269,10 +285,12 @@ let items = [];
 let filesOpen = false;
 let filesRequest = 0;
 
-if (CONFIG.claim) claim.hidden = false;
-const savedSettings = readSettings();
-keepNames.checked = typeof savedSettings.keepOriginal === "boolean" ? savedSettings.keepOriginal : CONFIG.keepOriginal !== false;
-keepExtension.checked = typeof savedSettings.keepExtension === "boolean" ? savedSettings.keepExtension : CONFIG.keepExtension === true;
+if (!CONFIG.locked) {
+  if (CONFIG.claim) claim.hidden = false;
+  const savedSettings = readSettings();
+  keepNames.checked = typeof savedSettings.keepOriginal === "boolean" ? savedSettings.keepOriginal : CONFIG.keepOriginal !== false;
+  keepExtension.checked = typeof savedSettings.keepExtension === "boolean" ? savedSettings.keepExtension : CONFIG.keepExtension === true;
+}
 function syncExtension() {
   keepExtension.disabled = keepNames.checked;
 }
@@ -294,52 +312,67 @@ function saveSettings() {
     return;
   }
 }
-syncExtension();
-keepNames.addEventListener("change", () => {
+if (!CONFIG.locked) {
   syncExtension();
-  saveSettings();
-});
-keepExtension.addEventListener("change", saveSettings);
-claim.addEventListener("click", claimExisting);
-filesMenu.addEventListener("toggle", () => {
-  if (filesMenu.open === filesOpen) return;
-  if (!filesMenu.open) {
-    filesRequest++;
-    filesOpen = false;
-    const url = new URL(location.href);
-    url.hash = "";
-    history.replaceState(null, "", url);
-    return;
-  }
-  loadFiles();
-});
+  keepNames.addEventListener("change", () => {
+    syncExtension();
+    saveSettings();
+  });
+  keepExtension.addEventListener("change", saveSettings);
+  claim.addEventListener("click", claimExisting);
+  filesMenu.addEventListener("toggle", () => {
+    if (filesMenu.open === filesOpen) return;
+    if (!filesMenu.open) {
+      filesRequest++;
+      filesOpen = false;
+      const url = new URL(location.href);
+      url.hash = "";
+      history.replaceState(null, "", url);
+      return;
+    }
+    loadFiles();
+  });
 
-window.addEventListener("dragover", (e) => e.preventDefault());
-window.addEventListener("drop", (e) => e.preventDefault());
-window.addEventListener("paste", onPaste);
-window.addEventListener("beforeunload", (e) => {
-  if (!items.some((item) => !item.done && !item.skipped)) return;
-  e.preventDefault();
-  e.returnValue = "";
-});
-if (location.hash === "#files") {
-  setFilesOpen(true);
-  loadFiles();
-}
-drop.addEventListener("click", () => input.click());
-drop.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" || e.key === " ") {
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => e.preventDefault());
+  window.addEventListener("paste", onPaste);
+  window.addEventListener("beforeunload", (e) => {
+    if (!items.some((item) => !item.done && !item.skipped)) return;
     e.preventDefault();
-    input.click();
+    e.returnValue = "";
+  });
+  if (location.hash === "#files") {
+    setFilesOpen(true);
+    loadFiles();
   }
-});
-drop.addEventListener("dragover", () => drop.classList.add("over"));
-drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-drop.addEventListener("drop", (e) => {
-  drop.classList.remove("over");
-  addFiles(e.dataTransfer.files);
-});
-input.addEventListener("change", () => addFiles(input.files));
+  drop.addEventListener("click", () => input.click());
+  drop.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      input.click();
+    }
+  });
+  drop.addEventListener("dragover", () => drop.classList.add("over"));
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => {
+    drop.classList.remove("over");
+    addFiles(e.dataTransfer.files);
+  });
+  input.addEventListener("change", () => addFiles(input.files));
+  if (CONFIG.auth) {
+    const logoutBtn = document.querySelector("#logout");
+    logoutBtn.addEventListener("click", async () => {
+      logoutBtn.disabled = true;
+      try {
+        await fetch(location.pathname, { method: "POST", headers: { "x-logout": "1" } });
+      } catch {
+        logoutBtn.disabled = false;
+        return;
+      }
+      location.reload();
+    });
+  }
+}
 
 function onPaste(e) {
   const target = e.target;
@@ -659,6 +692,7 @@ async function request(method, key, body) {
   } catch {
     throw new Error("Network error. Check the connection and try again.");
   }
+  if (expired(response)) return new Promise(() => {});
   const raw = await response.text();
   let parsed = null;
   try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
@@ -669,6 +703,12 @@ async function request(method, key, body) {
   }
   if (response.ok && parsed) return parsed;
   throw new Error(raw || "Upload failed. Try again.");
+}
+
+function expired(response) {
+  if (response.status !== 401 || CONFIG.auth !== true) return false;
+  location.reload();
+  return true;
 }
 
 function setFilesOpen(open) {
@@ -684,6 +724,7 @@ async function loadFiles() {
   setFilesOpen(true);
   try {
     const response = await fetch(location.pathname, { headers: { "x-list": "1" } });
+    if (expired(response)) return;
     const raw = await response.text();
     if (request !== filesRequest) return;
     let data = null;
@@ -795,6 +836,7 @@ async function renameCreated(li) {
     },
   });
   const raw = await response.text();
+  if (expired(response)) return;
   if (!response.ok) {
     input.committing = false;
     status.className = "status err";
@@ -815,6 +857,7 @@ async function deleteCreated(li) {
     method: "DELETE",
     headers: { "x-key": encodeURIComponent(li.dataset.key) },
   });
+  if (expired(response)) return;
   if (!response.ok) {
     li.querySelector(".status").textContent = "Could not delete. Try again.";
     li.querySelector(".status").className = "status err";
@@ -831,6 +874,7 @@ async function claimExisting() {
   created.textContent = "Claiming…";
   try {
     const response = await fetch(location.pathname, { method: "POST", headers: { "x-claim": "1" } });
+    if (expired(response)) return;
     const raw = await response.text();
     let data = null;
     try { data = JSON.parse(raw); } catch (e) { data = null; }
@@ -857,6 +901,41 @@ function formatBytes(n) {
     minimumFractionDigits: digits,
   }).format(value);
   return formatted + "\u00a0" + units[i];
+}
+
+if (CONFIG.locked) {
+  const form = document.querySelector("#login");
+  const field = document.querySelector("#token");
+  const err = document.querySelector("#login-err");
+  const button = form.querySelector("button");
+  field.focus();
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    err.hidden = true;
+    const token = field.value.trim();
+    if (!token) return;
+    button.disabled = true;
+    let response;
+    try {
+      response = await fetch(location.pathname, {
+        method: "POST",
+        headers: { "x-login": "1", authorization: "Bearer " + token },
+      });
+    } catch {
+      err.textContent = "Network error. Check the connection and try again.";
+      err.hidden = false;
+      button.disabled = false;
+      return;
+    }
+    if (response.ok) {
+      location.reload();
+      return;
+    }
+    err.textContent = response.status === 401 ? "Wrong token." : "Could not log in.";
+    err.hidden = false;
+    button.disabled = false;
+    field.focus();
+  });
 }
 </script>
 </body>

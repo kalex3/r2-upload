@@ -1,4 +1,4 @@
-name = "r2-upload"
+name = "r2up"
 main = "src/index.ts"
 compatibility_date = "2026-10-18"
 
@@ -38,6 +38,10 @@ id = "paste-the-namespace-id"
 # This path is the access check. Share https://<domain><UPLOAD_PATH> only
 # with people who may upload. Generate one with: openssl rand -hex 24
 UPLOAD_PATH = "/paste-a-long-random-path"
+# Optional. When set, the page asks for this token and curl must send
+# Authorization: Bearer. Store it as a secret, not in this file:
+#   openssl rand -hex 32 | npx wrangler secret put UPLOAD_TOKEN
+# For npm run dev, put UPLOAD_TOKEN=... in .dev.vars instead.
 # Unique per worker. The file list on that worker only includes objects
 # this name created. Lowercase letters, numbers, and hyphens.
 WORKER_NAME = "admin"

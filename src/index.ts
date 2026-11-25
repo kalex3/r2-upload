@@ -3,6 +3,7 @@ import { PAGE } from "./page";
 export interface Env {
   BUCKET: R2Bucket;
   UPLOAD_PATH: string;
+  UPLOAD_TOKEN?: string;
   WORKER_NAME?: string;
   QUOTA_BYTES?: string;
   ACCOUNT_QUOTA_BYTES?: string;
@@ -29,6 +30,8 @@ const DEFAULT_PAGE_DESCRIPTION =
 
 const PLACEHOLDER_PATH = "/paste-a-long-random-path";
 const MAX_BYTES = 5 * 1024 * 1024 * 1024;
+const SESSION_SECONDS = 30 * 24 * 60 * 60;
+const COOKIE_NAME = "r2_session";
 
 const PAGE_HEADERS = {
   "content-type": "text/html; charset=utf-8",
@@ -48,6 +51,26 @@ export default {
 
     const path = requestPath(new URL(request.url).pathname);
     if (path !== secret) return notFound();
+
+    const token = configuredToken(env);
+    if (token) {
+      if (request.method === "POST" && request.headers.get("x-logout") === "1") {
+        return new Response(null, {
+          status: 204,
+          headers: { "cache-control": "no-store", "set-cookie": sessionCookie(request, secret, "", 0) },
+        });
+      }
+      if (request.method === "POST" && request.headers.get("x-login") === "1") {
+        return login(request, secret, token);
+      }
+      if (!(await authorized(request, token))) {
+        if (request.method === "GET") {
+          return new Response(renderPage(env, true), { status: 401, headers: PAGE_HEADERS });
+        }
+        if (request.method === "HEAD") return new Response(null, { status: 401, headers: PAGE_HEADERS });
+        return text("Unauthorized", 401);
+      }
+    }
 
     if (request.method === "GET") {
       if (request.headers.get("x-list") === "1") return listCreated(request, env);
@@ -91,6 +114,104 @@ function configuredPath(env: Env): string | null {
     return null;
   }
   return raw;
+}
+
+function configuredToken(env: Env): string | null {
+  if (typeof env.UPLOAD_TOKEN !== "string") return null;
+  const raw = env.UPLOAD_TOKEN.replace(/\r?\n$/, "");
+  if (raw.trim() === "") return null;
+  return raw;
+}
+
+function bearer(request: Request): string | null {
+  const match = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.get("authorization") ?? "");
+  return match ? match[1] : null;
+}
+
+async function authorized(request: Request, token: string): Promise<boolean> {
+  if (request.headers.has("authorization")) {
+    const presented = bearer(request);
+    if (presented === null) return false;
+    return sameSecret(presented, token);
+  }
+  return validSession(request, token);
+}
+
+async function login(request: Request, path: string, token: string): Promise<Response> {
+  const presented = bearer(request);
+  if (presented === null || !(await sameSecret(presented, token))) return text("Unauthorized", 401);
+  const exp = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
+  const value = `${exp}.${await sign(token, String(exp))}`;
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "cache-control": "no-store",
+      "set-cookie": sessionCookie(request, path, value, SESSION_SECONDS),
+    },
+  });
+}
+
+async function sameSecret(presented: string, token: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [left, right] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(presented)),
+    crypto.subtle.digest("SHA-256", enc.encode(token)),
+  ]);
+  return crypto.subtle.timingSafeEqual(left, right);
+}
+
+async function validSession(request: Request, token: string): Promise<boolean> {
+  const value = readCookie(request, COOKIE_NAME);
+  if (!value) return false;
+  const dot = value.indexOf(".");
+  if (dot <= 0) return false;
+  const exp = value.slice(0, dot);
+  const mac = value.slice(dot + 1);
+  if (!/^\d{1,16}$/.test(exp)) return false;
+  const expires = Number(exp);
+  if (!Number.isSafeInteger(expires) || expires * 1000 <= Date.now()) return false;
+  const expected = await sign(token, exp);
+  const enc = new TextEncoder();
+  const a = enc.encode(mac);
+  const b = enc.encode(expected);
+  if (a.byteLength !== b.byteLength) return false;
+  return crypto.subtle.timingSafeEqual(a, b);
+}
+
+async function sign(token: string, message: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(token),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return base64url(new Uint8Array(sig));
+}
+
+function base64url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function readCookie(request: Request, name: string): string | null {
+  const header = request.headers.get("cookie");
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const piece = part.trim();
+    const eq = piece.indexOf("=");
+    if (eq === -1) continue;
+    if (piece.slice(0, eq) === name) return piece.slice(eq + 1);
+  }
+  return null;
+}
+
+function sessionCookie(request: Request, path: string, value: string, maxAge: number): string {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  // The bucket is every other path on this host. Keep the cookie on the secret path.
+  return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=${path}; Max-Age=${maxAge}${secure}`;
 }
 
 function requestPath(pathname: string): string | null {
@@ -565,19 +686,25 @@ async function listCreated(request: Request, env: Env): Promise<Response> {
   }
 }
 
-function renderPage(env: Env): string {
+function renderPage(env: Env, locked = false): string {
+  const token = configuredToken(env) !== null;
   const config = JSON.stringify({
     claim: env.CLAIM_UNOWNED === "true",
     keepOriginal: env.KEEP_ORIGINAL_NAMES !== "false",
     keepExtension: env.KEEP_EXTENSION === "true",
     nameLength: randomNameLength(env),
+    auth: token,
+    locked,
   }).replaceAll("<", "\\u003c");
   const title = escapeHtml(pageText(env.PAGE_TITLE, DEFAULT_PAGE_TITLE));
   const description = escapeHtml(pageText(env.PAGE_DESCRIPTION, DEFAULT_PAGE_DESCRIPTION));
   const lead = description ? `<p class="lead">${description}</p>` : "";
   return PAGE.replaceAll("__CONFIG__", config)
     .replaceAll("__TITLE__", title)
-    .replaceAll("__LEAD__", lead);
+    .replaceAll("__LEAD__", lead)
+    .replaceAll("__LOGIN_HIDDEN__", locked ? "" : " hidden")
+    .replaceAll("__APP_HIDDEN__", locked ? " hidden" : "")
+    .replaceAll("__LOGOUT_HIDDEN__", token && !locked ? "" : " hidden");
 }
 
 function pageText(raw: string | undefined, fallback: string): string {
